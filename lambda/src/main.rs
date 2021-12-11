@@ -1,6 +1,4 @@
-use aws_sdk_dynamodb::{
-    model::AttributeValue, output::GetItemOutput, Client,
-};
+use aws_sdk_dynamodb::{model::AttributeValue, output::GetItemOutput, Client};
 use lambda_http::{
     handler,
     lambda_runtime::{self, Context, Error as LambdaError},
@@ -66,14 +64,14 @@ fn get_item_to_response(output: GetItemOutput) -> Response<Body> {
         return RedirectGetError::HostNotFound.into_response();
     };
 
-    return match location_raw {
+    match location_raw {
         Ok(location) => Response::builder()
             .status(301)
             .header("Location", location)
             .body(Body::Empty)
             .expect("failed to render result"),
         Err(_) => RedirectGetError::InvalidFormat.into_response(),
-    };
+    }
 }
 
 #[tokio::main]
