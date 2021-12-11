@@ -6,16 +6,16 @@ Handle redirects using AWS serverless services.
 
 ## Building
 
-Install the AWS CDK and clone the repository. Create a virtual environment with
-`python3 -m venv ./.venv` and activate it with `source ./.venv/bin/activate`. Install
-the project with `pip install -e .`.
+Install the AWS CDK and clone the repository. Install dependencies with `npm ci`.
 
 Define the following values in a `cdk.context.json` file:
 
-- **primary_domain**: The domain name under which the `redirect.` alias will be created
-- **other_domains**: Other domains that may get used for redirection; these domains will have wildcards added as SANs to the certificate
-- **account_id**: The account ID where the Route 53 Hosted Zones are
-- **region**: Which region to use
+- **primaryDomain**: The domain name under which the `redirect.` alias will be created
+- **secondaryDomains**: Other domains that may get used for redirection; these domains will have wildcards added as SANs to the certificate
+
+Export the necessary AWS environment variables (such as `AWS_PROFILE` or
+`AWS_ACCESS_KEY_ID`, etc) for the CDK to automatically determine the correct
+account/region to use.
 
 Then run a `cdk diff` to make sure that everything looks good followed by a `cdk deploy`.
 
@@ -25,9 +25,19 @@ For now, two manual steps are required for each redirect:
 
 1. Create an entry in the DynamoDB table with two attributes: `host` and `location`. The `host` is the FQDN to redirect and `location` is the
    target of the redirect
-1. Add a CNAME to the `redirect.{primary_domain}` domain name
+1. Add a CNAME to the `redirect.{primaryDomain}` domain name
 
-From there, the redirection should "just work" so long as `host` falls under one of the `other_domains` specified.
+From there, the redirection should "just work" so long as `host` falls under one of the `secondaryDomains` specified.
+
+Eventually, an authenticated `POST` may be supported to add new locations.
+
+## Rust in Lambda
+
+Getting Rust to work in Lambda via the CDK is based pretty heavily on the docs and examples
+in the following AWS GitHub repos:
+
+ - [awslabs/aws-lambda-rust-runtime](https://github.com/awslabs/aws-lambda-rust-runtime)
+ - [aws-samples/aws-cdk-with-rust](https://github.com/aws-samples/aws-cdk-with-rust)
 
 ## License
 
