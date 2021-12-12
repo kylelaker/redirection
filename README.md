@@ -1,4 +1,3 @@
-
 # Redirect
 
 Handle redirects using AWS serverless services.
