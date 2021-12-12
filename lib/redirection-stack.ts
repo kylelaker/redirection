@@ -13,6 +13,7 @@ import * as apigwIntegrations from "@aws-cdk/aws-apigatewayv2-integrations-alpha
 import { Construct } from "constructs";
 import { titleCaseDomain } from "./util";
 import { RustLambdaFunction } from "./rust-lambda";
+import * as path from "path";
 
 export interface RedirectionStackProps extends StackProps {
   /**
@@ -28,95 +29,110 @@ export interface RedirectionStackProps extends StackProps {
 }
 
 export class RedirectionStack extends Stack {
-  public readonly table: dynamodb.ITable;
-  public readonly redirector: lambda.IFunction;
-  public readonly redirectApi: apigw.IHttpApi;
-  public readonly records: route53.IRecordSet[] = [];
-
   constructor(scope: Construct, id: string, props: RedirectionStackProps) {
     super(scope, id, props);
-    this.table = new dynamodb.Table(this, "RedirectTable", {
-      partitionKey: {
-        name: "host",
-        type: dynamodb.AttributeType.STRING,
-      },
-      billingMode: dynamodb.BillingMode.PROVISIONED,
-      readCapacity: 1,
-      writeCapacity: 1,
-    });
-    const domainMap = this.mapDomains(props.primaryDomain, props.secondaryDomains ?? []);
-    const certificate = new acm.Certificate(this, "Certificate", {
-      domainName: `redirect.${props.primaryDomain}`,
-      subjectAlternativeNames: (props?.secondaryDomains ?? []).map((name) => `*.${name}`),
-      validation: acm.CertificateValidation.fromDnsMultiZone(domainMap),
-    });
+    this.templateOptions.description = "Creates an API, storage, and handler for performing HTTP redirects";
+
     const redirectSubdomain = `redirect.${props.primaryDomain}`;
-    const apigwDomain = new apigw.DomainName(this, "DomainName", {
-      certificate: certificate,
-      domainName: redirectSubdomain,
-    });
-    const recordTarget = route53.RecordTarget.fromAlias(
-      new route53Targets.ApiGatewayv2DomainProperties(apigwDomain.regionalDomainName, apigwDomain.regionalHostedZoneId)
-    );
-    this.records.push(
-      new route53.ARecord(this, "AliasRecord", {
-        zone: domainMap[`redirect.${props.primaryDomain}`],
-        recordName: `redirect.${props.primaryDomain}`,
-        target: recordTarget,
-      }),
-      new route53.AaaaRecord(this, "AaaaliasRecord", {
-        zone: domainMap[`redirect.${props.primaryDomain}`],
-        recordName: `redirect.${props.primaryDomain}`,
-        target: recordTarget,
-      })
-    );
+    const domainMap = this.mapDomainsToHostedZone(props.primaryDomain, props.secondaryDomains ?? []);
     const signingProfile = new signer.SigningProfile(this, "SigningProfile", {
       platform: signer.Platform.AWS_LAMBDA_SHA384_ECDSA,
     });
     const signingConfig = new lambda.CodeSigningConfig(this, "CodeSignConfig", {
       signingProfiles: [signingProfile],
     });
-    const fn = new RustLambdaFunction(this, "Redirector", {
-      name: "redirection-get",
-      debug: true,
-      functionProps: {
-        codeSigningConfig: signingConfig,
-        tracing: lambda.Tracing.ACTIVE,
-        environment: {
-          REDIRECT_TABLE: this.table.tableName,
-        },
-      },
-    });
 
-    this.redirector = fn.function;
-    this.table.grantReadData(this.redirector);
-    this.redirectApi = new apigw.HttpApi(this, "RedirectApi", {
-      defaultIntegration: new apigwIntegrations.HttpLambdaIntegration("Redirect", this.redirector),
+    const table = new dynamodb.Table(this, "RedirectTable", {
+      partitionKey: {
+        name: "host",
+        type: dynamodb.AttributeType.STRING,
+      },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+    });
+    const redirector = new RustLambdaFunction(this, "RedirectHandler", {
+      cargoRoot: path.join(__dirname, "..", "lambda"),
+      binaryName: "redirection-get",
+      debug: true,
+      codeSigningConfig: signingConfig,
+      tracing: lambda.Tracing.ACTIVE,
+      environment: {
+        REDIRECT_TABLE: table.tableName,
+      },
+      memorySize: 256,
+    });
+    table.grantReadData(redirector);
+
+    const certificate = new acm.Certificate(this, "Certificate", {
+      domainName: redirectSubdomain,
+      subjectAlternativeNames: (props?.secondaryDomains ?? []).map((name) => `*.${name}`),
+      validation: acm.CertificateValidation.fromDnsMultiZone(domainMap),
+    });
+    const apigwDomain = new apigw.DomainName(this, "DomainName", {
+      certificate,
+      domainName: redirectSubdomain,
+    });
+    const redirectApi = new apigw.HttpApi(this, "RedirectApi", {
+      defaultIntegration: new apigwIntegrations.HttpLambdaIntegration("Redirect", redirector),
       defaultDomainMapping: {
         domainName: apigwDomain,
       },
     });
-    props.secondaryDomains?.map(
-      (domainName) =>
-        new apigw.ApiMapping(this, `ApiMapping${titleCaseDomain(domainName)}`, {
-          api: this.redirectApi,
-          domainName: new apigw.DomainName(this, `DomainName${titleCaseDomain(domainName)}`, {
-            certificate: certificate,
-            domainName: `*.${domainName}`,
-          }),
-        })
+    props.secondaryDomains?.forEach((domain) => this.registerWildcard(domain, redirectApi, certificate));
+
+    this.createDnsEntries(
+      redirectSubdomain,
+      domainMap[redirectSubdomain],
+      route53.RecordTarget.fromAlias(
+        new route53Targets.ApiGatewayv2DomainProperties(
+          apigwDomain.regionalDomainName,
+          apigwDomain.regionalHostedZoneId
+        )
+      )
     );
   }
 
-  private mapDomains(primary: string, secondary: string[]): { [key: string]: route53.IHostedZone } {
-    return {
-      [`redirect.${primary}`]: route53.HostedZone.fromLookup(this, `Zone${titleCaseDomain(primary)}`, {
-        domainName: primary,
+  private createDnsEntries(
+    recordName: string,
+    zone: route53.IHostedZone,
+    target: route53.RecordTarget
+  ): route53.RecordSet[] {
+    const records = [];
+    records.push(
+      new route53.ARecord(this, "AliasRecord", {
+        zone,
+        recordName,
+        target,
       }),
-      ...secondary.reduce((obj, next) => {
-        obj[`*.${next}`] = route53.HostedZone.fromLookup(this, `Zone${next}`, { domainName: next });
-        return obj;
-      }, {} as { [key: string]: route53.IHostedZone }),
-    };
+      new route53.AaaaRecord(this, "AaaaliasRecord", {
+        zone,
+        recordName,
+        target,
+      })
+    );
+    return records;
+  }
+
+  private registerWildcard(domainName: string, api: apigw.IHttpApi, certificate: acm.ICertificate) {
+    // eslint-disable-next-line no-new
+    new apigw.ApiMapping(this, `ApiMapping${titleCaseDomain(domainName)}`, {
+      api,
+      domainName: new apigw.DomainName(this, `DomainName${titleCaseDomain(domainName)}`, {
+        certificate,
+        domainName: `*.${domainName}`,
+      }),
+    });
+  }
+
+  private mapDomainsToHostedZone(primary: string, secondary: string[]): { [key: string]: route53.IHostedZone } {
+    const map = {} as { [key: string]: route53.IHostedZone };
+    map[`redirect.${primary}`] = route53.HostedZone.fromLookup(this, `Zone${titleCaseDomain(primary)}`, {
+      domainName: primary,
+    });
+    for (const domain of secondary) {
+      map[`*.${domain}`] = route53.HostedZone.fromLookup(this, `Zone${titleCaseDomain(domain)}`, {
+        domainName: domain,
+      });
+    }
+    return map;
   }
 }
