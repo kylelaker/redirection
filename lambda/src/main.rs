@@ -1,9 +1,5 @@
 use aws_sdk_dynamodb::{model::AttributeValue, output::GetItemOutput, Client};
-use lambda_http::{
-    handler,
-    lambda_runtime::{self, Context, Error as LambdaError},
-    Body, IntoResponse, Request, Response,
-};
+use lambda_http::{service_fn, Body, Error as LambdaError, IntoResponse, Request, Response};
 use serde::Serialize;
 use thiserror::Error;
 
@@ -114,7 +110,7 @@ fn get_request_header(event: Request, header: &str) -> Result<String, RedirectGe
     )
 }
 
-async fn func(event: Request, _: Context) -> Result<impl IntoResponse, LambdaError> {
+async fn func(event: Request) -> Result<impl IntoResponse, LambdaError> {
     let shared_config = aws_config::load_from_env().await;
     let client = Client::new(&shared_config);
 
@@ -136,6 +132,6 @@ async fn func(event: Request, _: Context) -> Result<impl IntoResponse, LambdaErr
 
 #[tokio::main]
 async fn main() -> Result<(), LambdaError> {
-    lambda_runtime::run(handler(func)).await?;
+    lambda_http::run(service_fn(func)).await?;
     Ok(())
 }
