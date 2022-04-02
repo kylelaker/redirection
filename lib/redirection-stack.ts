@@ -53,6 +53,7 @@ export class RedirectionStack extends Stack {
       cargoRoot: path.join(__dirname, "..", "lambda"),
       binaryName: "redirection-get",
       debug: true,
+      architecture: lambda.Architecture.ARM_64,
       codeSigningConfig: signingConfig,
       tracing: lambda.Tracing.ACTIVE,
       environment: {

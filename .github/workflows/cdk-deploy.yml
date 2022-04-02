@@ -1,12 +1,12 @@
 ---
 name: Deploy CDK Stack
 
-on:
-  workflow_run:
-    workflows: [Run tests]
-    branches: main
-    types:
-      - completed
+#on:
+  #workflow_run:
+  #  workflows: [Run tests]
+  #  branches: main
+  #  types:
+  #    - completed
 
 jobs:
   on-success:
