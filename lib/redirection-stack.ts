@@ -1,21 +1,17 @@
-import {
-  Stack,
-  StackProps,
-  aws_certificatemanager as acm,
-  aws_dynamodb as dynamodb,
-  aws_lambda as lambda,
-  aws_route53 as route53,
-  aws_route53_targets as route53Targets,
-  aws_signer as signer,
-} from "aws-cdk-lib";
+import * as cdk from "aws-cdk-lib";
+import * as acm from "aws-cdk-lib/aws-certificatemanager";
+import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
+import * as lambda from "aws-cdk-lib/aws-lambda";
+import * as nodejs from "aws-cdk-lib/aws-lambda-nodejs";
+import * as route53 from "aws-cdk-lib/aws-route53";
+import * as route53Targets from "aws-cdk-lib/aws-route53-targets";
+import * as signer from "aws-cdk-lib/aws-signer";
 import * as apigw from "@aws-cdk/aws-apigatewayv2-alpha";
 import * as apigwIntegrations from "@aws-cdk/aws-apigatewayv2-integrations-alpha";
 import { Construct } from "constructs";
 import { titleCaseDomain } from "./util";
-import { RustLambdaFunction } from "./rust-lambda";
-import * as path from "path";
 
-export interface RedirectionStackProps extends StackProps {
+export interface RedirectionStackProps extends cdk.StackProps {
   /**
    * The primary "base" domain for redirection. A `redirect.` subdomain
    * will be created under this domain.
@@ -28,7 +24,7 @@ export interface RedirectionStackProps extends StackProps {
   secondaryDomains?: string[];
 }
 
-export class RedirectionStack extends Stack {
+export class RedirectionStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: RedirectionStackProps) {
     super(scope, id, props);
     this.templateOptions.description = "Creates an API, storage, and handler for performing HTTP redirects";
@@ -49,10 +45,9 @@ export class RedirectionStack extends Stack {
       },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
     });
-    const redirector = new RustLambdaFunction(this, "RedirectHandler", {
-      cargoRoot: path.join(__dirname, "..", "lambda"),
-      binaryName: "redirection-get",
-      debug: true,
+
+    const redirector = new nodejs.NodejsFunction(this, "RedirectHandler", {
+      entry: "lambda/redirect.ts",
       architecture: lambda.Architecture.ARM_64,
       codeSigningConfig: signingConfig,
       tracing: lambda.Tracing.ACTIVE,

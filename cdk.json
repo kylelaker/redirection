@@ -1,5 +1,4 @@
 {
-  "build": "./build.sh",
   "app": "npx ts-node --prefer-ts-exts bin/redirection.ts",
   "watch": {
     "include": [
