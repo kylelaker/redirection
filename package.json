@@ -37,7 +37,7 @@
     "@aws-lambda-powertools/logger": "^0.8.1",
     "@aws-lambda-powertools/tracer": "^0.8.1",
     "@aws-sdk/client-dynamodb": "^3.74.0",
-    "@aws-sdk/lib-dynamodb": "^3.74.0",
+    "@aws-sdk/lib-dynamodb": "^3.75.0",
     "@aws-sdk/util-dynamodb": "^3.74.0",
     "aws-cdk-lib": "^2.20.0",
     "constructs": "^10.0.121",
