@@ -1,6 +1,7 @@
 import { APIGatewayProxyEventV2, APIGatewayProxyResultV2, Context } from "aws-lambda";
 import { DynamoDB } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocument } from "@aws-sdk/lib-dynamodb";
+import { LambdaInterface } from "@aws-lambda-powertools/commons";
 import { Tracer } from "@aws-lambda-powertools/tracer";
 import { Logger } from "@aws-lambda-powertools/logger";
 
@@ -26,36 +27,43 @@ const unexpectedError: APIGatewayProxyResultV2 = {
   body: "An unexpected error occurred",
 };
 
-export async function handler(event: APIGatewayProxyEventV2, context: Context): Promise<APIGatewayProxyResultV2> {
-  logger.addContext(context);
-  if (logger.isColdStart()) {
-    console.info("This event is a cold start");
-  }
-
-  const host = event.headers.host;
-  if (!host) {
-    logger.error("Invalid request received", { data: event.headers });
-    return badRequest;
-  }
-
-  try {
-    const record = await dynamodb.get({ TableName: table, Key: { host }, AttributesToGet: ["location"] });
-    if (!record.Item) {
-      logger.error("Unknown host", { data: event.headers });
-      return unknownHost;
+class Lambda implements LambdaInterface {
+  @tracer.captureLambdaHandler()
+  public async handler(event: APIGatewayProxyEventV2, context: Context): Promise<APIGatewayProxyResultV2> {
+    logger.addContext(context);
+    if (logger.isColdStart()) {
+      console.info("This event is a cold start");
     }
-    if (!record.Item.location) {
-      logger.error("Unexpected record format", { data: record.Item });
+
+    const host = event.headers.host;
+    if (!host) {
+      logger.error("Invalid request received", { data: event.headers });
+      return badRequest;
+    }
+
+    try {
+      const record = await dynamodb.get({ TableName: table, Key: { host }, AttributesToGet: ["location"] });
+      if (!record.Item) {
+        logger.error("Unknown host", { data: event.headers });
+        return unknownHost;
+      }
+      if (!record.Item.location) {
+        logger.error("Unexpected record format", { data: record.Item });
+        return unexpectedError;
+      }
+      return {
+        statusCode: 301,
+        headers: {
+          Location: record.Item.location,
+        },
+      };
+    } catch (err) {
+      logger.error("Unexpected DynamoDB service error", err as Error);
       return unexpectedError;
     }
-    return {
-      statusCode: 301,
-      headers: {
-        Location: record.Item.location,
-      },
-    };
-  } catch (err) {
-    logger.error("Unexpected DynamoDB service error", err as Error);
-    return unexpectedError;
   }
 }
+
+export const handlerClass = new Lambda();
+export const handler = handlerClass.handler;
+
